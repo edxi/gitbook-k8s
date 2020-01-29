@@ -1,4 +1,4 @@
-# k8s
+# k8s笔记
 
 ## 分发公钥
 
@@ -403,6 +403,7 @@ sed -i 's/^SELINUX=.*/SELINUX=disabled/' /etc/selinux/config
     kubeadm init --config=kubeadm.yml | tee kubeadm-init.log
     ```
 * 完成后拿到加入cluster的 kubeadm命令（最好先保存下来，token 24小时后失效，可以重新生成和获取`kubeadm token create; kubeadm token list`，[https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-token/](https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-token/)）
+  
   * `kubeadm join 10.184.101.10:6443 --token rv2jcy.fpon2ycg0ajhky6g --discovery-token-ca-cert-hash sha256:44aaa597b8cf24643c5cb0e2d004409bd3610d94a4c70f64e40d93c92dfdcf67`（这一串可以`openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | openssl dgst -sha256 -hex | sed 's/^.* //'`）
 * 并为kubectl创建.kube命令目录
 
