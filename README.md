@@ -667,3 +667,126 @@ parameters:
 
 * pvc的spec写上`storageClassName: mycephfs`即可创建对应pvc和pv
 
+### helm
+
+微软helm 仓库的镜像
+
+- stable: http://mirror.azure.cn/kubernetes/charts/
+- incubator: http://mirror.azure.cn/kubernetes/charts-incubator/
+
+```bash
+helm repo add stable http://mirror.azure.cn/kubernetes/charts/
+helm repo add incubator http://mirror.azure.cn/kubernetes/charts-incubator/
+```
+
+helm install 命令可以从多个来源安装（可以跟上set或set-file参数修改默认配置，也可以-f指定value的yaml文件）：
+
+- 一个 chart repository (`helm instll stable/foo`)
+- 一个本地 chart 压缩包 (`helm install foo-0.1.1.tgz`)
+- 一个解压后的 chart 目录 (`helm install path/to/foo`)
+- 一个完整 URL (`helm install https://example.com/charts/foo-1.2.3.tgz`)
+
+当新版本的 chart 发布时，或者当你想要更改 release 配置时，可以使用 `helm upgrade` 命令。
+
+```bash
+# 修改个nginx ingress的value
+helm upgrade nginx-ingress-1580279900 nginx-stable/nginx-ingress --set controller.replicaCount=2
+# 升级nginx ingress
+helm upgrade --reuse-values nginx-ingress-1580279900 stable/nginx-ingress
+
+# 看看自定义的value
+helm get values nginx-ingress-1580279900
+
+# 回到修改之前
+helm history
+helm rollback nginx-ingress-1580279900 1
+```
+
+### nginx-ingress
+
+k8s官方自带的ingress controller目前只有gce和nginx-ingress，只有nginx-ingress可以bmr环境（和nginx公司提供的nginx-ingress的还不一样～k8s自带的只提供基本功能）
+
+- bmr方式使用参照[官方建议](https://kubernetes.github.io/ingress-nginx/deploy/baremetal/)
+
+  - metalLB项目可以提供k8s的纯软件解决方案，但是beta
+
+  - nodeport方式是默认的，可以结合自己提供的edge，比如自建HAproxy，也可以自己设置external-ip
+
+  - hostnetwork，比较方便和高效的方式，须改写部署manifest，最好改成daemonset，还可以nodeselector，下面是一个修改成hostnetwork和daemonset的ingress controller（截取部分修改的地方）
+
+    ```yaml
+    apiVersion: apps/v1
+    kind: DaemonSet # 改成DaemonSet
+    # 省略
+    # 省略
+    # 省略
+    spec:
+    # 省略
+      template:
+      # 省略
+        spec:
+        # 省略
+          nodeSelector:
+          # 省略
+            ingress-host: "true" # （可选）这是自己加的label，用来使ingress controller只在特定的host上启动，用来接收hostnetwork流量
+          hostNetwork: true # 用这个开启使用hostnetwork，如果之前创建了ingress controller的service，建议删除
+          dnsPolicy: ClusterFirstWithHostNet # （可选）因为用了hostnetwork，会使用外部dns，通过这个使用k8s的内部coredns
+          containers:
+            - name: nginx-ingress-controller
+              image: # 省略
+              args:
+                - # 省略
+                - --report-node-internal-ip-address # Set the load-balancer status of Ingress objects to internal Node addresses instead of external. Requires the update-status parameter.
+    ```
+
+- 测试
+
+  - （可选）获取tls，这里测试就自生成crt和key
+
+    ```bash
+    openssl req -newkey rsa:2048 -nodes -keyout nginx-sts-fs.test.lab.key -x509 -days 365 -out nginx-sts-fs.test.lab.crt
+    
+    cat nginx-sts-fs.test.lab.key | base64
+    cat nginx-sts-fs.test.lab.crt | base64
+    ```
+
+  - ingress和对应的tls secret的manifest
+
+    ```yaml
+    apiVersion: extensions/v1beta1
+    kind: Ingress
+    metadata:
+      annotations:
+        kubernetes.io/ingress.class: nginx
+      name: nginx-ingress-test
+      # namespace: foo
+    spec:
+      rules:
+        - host: nginx-sts-fs.test.lab
+          http:
+            paths:
+              - backend:
+                  serviceName: nginx-sts-fs
+                  servicePort: 80
+                path: /
+      # This section is only required if TLS is to be enabled for the Ingress
+      tls:
+          - hosts:
+              - nginx-sts-fs.test.lab
+            secretName: nginx-sts-fs.test.lab-tls
+    
+    ---
+    
+    # # If TLS is enabled for the Ingress, a Secret containing the certificate and key must also be provided:
+    
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: nginx-sts-fs.test.lab-tls
+      # namespace: foo
+    data:
+      tls.crt: <base64 encoded cert> # 这里填入刚才生成的crt的base64字符串
+      tls.key: <base64 encoded cert> # 这里填入刚才生成的key的base64字符串
+    type: kubernetes.io/tls
+    ```
+
